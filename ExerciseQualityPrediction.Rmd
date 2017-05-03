@@ -1,0 +1,317 @@
+---
+title: "Exercise Quality Prediction - Machine Learning Course Project"
+author: "Dwayne Dreakford"
+date: "4/30/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+projectPath <- "~/Documents/Projects/Personal/DataScience/MachineLearning/courseproject"
+setwd(projectPath)
+
+library(readr)
+library(dplyr)
+library(caret)
+```
+
+# Executive Summary
+Our goal is to practice model-based prediction by performing independent analysis of the data provided with the paper, [Qualitative Activity Recognition of Weight Lifting Exercises](http://groupware.les.inf.puc-rio.br/har#ixzz4fkFBWO00) (Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. 
+Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.)
+
+Using the data provided, we can examine the impact of feature selection and model tuning on predictive performance by comparing these results to those reported in the aformentioned paper, given the training and test data provided. 
+
+The training and test datasets represent observations obtained while each study participant performed 10 repetitions of the exercise, Unilateral Dumbbell Biceps Curl. The training dataset also includes the actual outcome, recorded in the $classe$ variable. The outcomes are indicated as:
+
+* Class $A$ - performed the exercise according to spec
+* Class $B$ - threw the elbows to the front
+* Class $C$ - lifted the dumbbell only halfway
+* Class $D$ - lowered the dumbbell only halfway
+* Class $E$ - threw the hips to the front
+
+The following aspects of "how to develop a good predictor" are addressed here as follows:
+
+1. **The question:** Can we predict the manner in which each exercise was performed?
+2. **Data: ** The [training](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv) and [test](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv) data are provided. I did some cleanup and subsetting of the data, as described in the Exploratory Analysis section of this report. 
+3. **Feature and Model Selection:** The authors of the aforementioned paper put significant forethought into, and engaged some domain expertise to select, the features utilized by the predictor. I stuck with the automated feature selection provided by the random forrest predictor, which I used through the $caret$ package. 
+4. **Performance Tuning:** I used cross validation resampling (via the $train$ and $trainControl$ functions of the $caret$ package). I chose this over default bootstrap resampling in order to obtain a more conservative out-of-sample error rate estimate.
+
+
+# Data Acquisition and Loading
+*See $ExerciseQualityPrediction.Rmd$ for the complete data loading code. I used the $readr$ package to load the CSV files, then applied some basic type conversions on the resulting variables.*
+
+```{r warning=FALSE}
+
+# Download the training and test data if necessary.
+trainFile <- paste0(projectPath, "/pml-training.csv")
+if ( !file.exists(trainFile) ) {
+    download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", destfile = "pml-training.csv", method = "curl", quiet = TRUE)
+}
+testFile <- paste0(projectPath, "/pml-testing.csv")
+if ( !file.exists(testFile) ) {
+    download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", destfile = "pml-testing.csv", method = "curl", quiet = TRUE)
+}
+```
+
+
+```{r echo=FALSE, warning=FALSE}
+
+# Specify column specs for loading the training and test data.
+colSpec <- cols(
+  X1 = col_integer(),
+  user_name = col_character(),
+  raw_timestamp_part_1 = col_integer(),
+  raw_timestamp_part_2 = col_integer(),
+  cvtd_timestamp = col_character(),
+  new_window = col_character(),
+  num_window = col_integer(),
+  roll_belt = col_double(),
+  pitch_belt = col_double(),
+  yaw_belt = col_double(),
+  total_accel_belt = col_double(),
+  kurtosis_roll_belt = col_double(),
+  kurtosis_picth_belt = col_double(),
+  kurtosis_yaw_belt = col_double(),
+  skewness_roll_belt = col_double(),
+  skewness_roll_belt.1 = col_double(),
+  skewness_yaw_belt = col_double(),
+  max_roll_belt = col_double(),
+  max_picth_belt = col_double(),
+  max_yaw_belt = col_double(),
+  min_roll_belt = col_double(),
+  min_pitch_belt = col_double(),
+  min_yaw_belt = col_double(),
+  amplitude_roll_belt = col_double(),
+  amplitude_pitch_belt = col_double(),
+  amplitude_yaw_belt = col_double(),
+  var_total_accel_belt = col_double(),
+  avg_roll_belt = col_double(),
+  stddev_roll_belt = col_double(),
+  var_roll_belt = col_double(),
+  avg_pitch_belt = col_double(),
+  stddev_pitch_belt = col_double(),
+  var_pitch_belt = col_double(),
+  avg_yaw_belt = col_double(),
+  stddev_yaw_belt = col_double(),
+  var_yaw_belt = col_double(),
+  gyros_belt_x = col_double(),
+  gyros_belt_y = col_double(),
+  gyros_belt_z = col_double(),
+  accel_belt_x = col_double(),
+  accel_belt_y = col_double(),
+  accel_belt_z = col_double(),
+  magnet_belt_x = col_double(),
+  magnet_belt_y = col_double(),
+  magnet_belt_z = col_double(),
+  roll_arm = col_double(),
+  pitch_arm = col_double(),
+  yaw_arm = col_double(),
+  total_accel_arm = col_double(),
+  var_accel_arm = col_double(),
+  avg_roll_arm = col_double(),
+  stddev_roll_arm = col_double(),
+  var_roll_arm = col_double(),
+  avg_pitch_arm = col_double(),
+  stddev_pitch_arm = col_double(),
+  var_pitch_arm = col_double(),
+  avg_yaw_arm = col_double(),
+  stddev_yaw_arm = col_double(),
+  var_yaw_arm = col_double(),
+  gyros_arm_x = col_double(),
+  gyros_arm_y = col_double(),
+  gyros_arm_z = col_double(),
+  accel_arm_x = col_double(),
+  accel_arm_y = col_double(),
+  accel_arm_z = col_double(),
+  magnet_arm_x = col_double(),
+  magnet_arm_y = col_double(),
+  magnet_arm_z = col_double(),
+  kurtosis_roll_arm = col_double(),
+  kurtosis_picth_arm = col_double(),
+  kurtosis_yaw_arm = col_double(),
+  skewness_roll_arm = col_double(),
+  skewness_pitch_arm = col_double(),
+  skewness_yaw_arm = col_double(),
+  max_roll_arm = col_double(),
+  max_picth_arm = col_double(),
+  max_yaw_arm = col_double(),
+  min_roll_arm = col_double(),
+  min_pitch_arm = col_double(),
+  min_yaw_arm = col_double(),
+  amplitude_roll_arm = col_double(),
+  amplitude_pitch_arm = col_double(),
+  amplitude_yaw_arm = col_double(),
+  roll_dumbbell = col_double(),
+  pitch_dumbbell = col_double(),
+  yaw_dumbbell = col_double(),
+  kurtosis_roll_dumbbell = col_double(),
+  kurtosis_picth_dumbbell = col_double(),
+  kurtosis_yaw_dumbbell = col_double(),
+  skewness_roll_dumbbell = col_double(),
+  skewness_pitch_dumbbell = col_double(),
+  skewness_yaw_dumbbell = col_double(),
+  max_roll_dumbbell = col_double(),
+  max_picth_dumbbell = col_double(),
+  max_yaw_dumbbell = col_double(),
+  min_roll_dumbbell = col_double(),
+  min_pitch_dumbbell = col_double(),
+  min_yaw_dumbbell = col_double(),
+  amplitude_roll_dumbbell = col_double(),
+  amplitude_pitch_dumbbell = col_double(),
+  amplitude_yaw_dumbbell = col_double(),
+  total_accel_dumbbell = col_double(),
+  var_accel_dumbbell = col_double(),
+  avg_roll_dumbbell = col_double(),
+  stddev_roll_dumbbell = col_double(),
+  var_roll_dumbbell = col_double(),
+  avg_pitch_dumbbell = col_double(),
+  stddev_pitch_dumbbell = col_double(),
+  var_pitch_dumbbell = col_double(),
+  avg_yaw_dumbbell = col_double(),
+  stddev_yaw_dumbbell = col_double(),
+  var_yaw_dumbbell = col_double(),
+  gyros_dumbbell_x = col_double(),
+  gyros_dumbbell_y = col_double(),
+  gyros_dumbbell_z = col_double(),
+  accel_dumbbell_x = col_double(),
+  accel_dumbbell_y = col_double(),
+  accel_dumbbell_z = col_double(),
+  magnet_dumbbell_x = col_double(),
+  magnet_dumbbell_y = col_double(),
+  magnet_dumbbell_z = col_double(),
+  roll_forearm = col_double(),
+  pitch_forearm = col_double(),
+  yaw_forearm = col_double(),
+  kurtosis_roll_forearm = col_double(),
+  kurtosis_picth_forearm = col_double(),
+  kurtosis_yaw_forearm = col_double(),
+  skewness_roll_forearm = col_double(),
+  skewness_pitch_forearm = col_double(),
+  skewness_yaw_forearm = col_double(),
+  max_roll_forearm = col_double(),
+  max_picth_forearm = col_double(),
+  max_yaw_forearm = col_double(),
+  min_roll_forearm = col_double(),
+  min_pitch_forearm = col_double(),
+  min_yaw_forearm = col_double(),
+  amplitude_roll_forearm = col_double(),
+  amplitude_pitch_forearm = col_double(),
+  amplitude_yaw_forearm = col_double(),
+  total_accel_forearm = col_double(),
+  var_accel_forearm = col_double(),
+  avg_roll_forearm = col_double(),
+  stddev_roll_forearm = col_double(),
+  var_roll_forearm = col_double(),
+  avg_pitch_forearm = col_double(),
+  stddev_pitch_forearm = col_double(),
+  var_pitch_forearm = col_double(),
+  avg_yaw_forearm = col_double(),
+  stddev_yaw_forearm = col_double(),
+  var_yaw_forearm = col_double(),
+  gyros_forearm_x = col_double(),
+  gyros_forearm_y = col_double(),
+  gyros_forearm_z = col_double(),
+  accel_forearm_x = col_double(),
+  accel_forearm_y = col_double(),
+  accel_forearm_z = col_double(),
+  magnet_forearm_x = col_double(),
+  magnet_forearm_y = col_double(),
+  magnet_forearm_z = col_double(),
+  classe = col_character())
+naVals <- c("", "NA", "#DIV/0!")
+```
+
+```{r warning=FALSE}
+
+# Load the training and test data, and convert variable types to
+# facilitate the pending analysis.
+trainData <- read_csv(trainFile, na = naVals, col_types = colSpec)
+trainData$classe <- as.factor(trainData$classe)
+trainData$new_window <- as.factor(trainData$new_window)
+
+testData <-read_csv(testFile, na = naVals, col_types = colSpec)
+testData$new_window <- as.factor(testData$new_window)
+```
+
+# Exploratory Analysis and Data Cleaning
+
+The training data contains extracted and derived features based on a 2.5s observation window. The rows with $new\_window=="yes"$, which contain the 96 derived feature values described in the aforementioned paper, [Qualitative Activity Recognition of Weight Lifting Exercises](http://groupware.les.inf.puc-rio.br/har#ixzz4fkFBWO00). These observations are the most important. Through experimentation with the automatic feature selection cability of the random forest predictor, I found these features/variables to be the most "important" for classification (i.e. responsible for the most relevant variation in the data). The remainingobservations (those with $new\_window=="yes$) were filtered out of the data used to train the predictor.
+
+The following variables/features, which either do not contain any data (i.e. consist solely of $NA$) or do not add significant predictive value, were not used in training the predictor model:
+
+* **Row number/index** from the training and test CSV files. This adds "false variance" to the model, that has nothing do do with proper exercise execution.
+* **Timestamps and window identifiers**. Derived features have been calculated for the 2.5s monitoring windows, and we have filtered our training data to only include the rows containing these derived feature values. The timestamps were useful in calculating the derived feature values, but are not consequential in ascertaining correct exercise form, as we are not forecasting based on time series data.
+* **Features that contain only NA values**. These don't provide any information, so were dropped from the data used to train the predictor.
+
+Additionally, I replaced $NA$ values in numeric variables with zero (0). Given the nature of this data set and the small sample size, this made more sense to me than imputing these values via k-nearest neighbors (k-NN), using mean values, etc.
+
+```{r warning=FALSE}
+
+# Filter out the observations that are missing the most important
+# feature/variable values.
+trainData <- filter(trainData, new_window=="yes")
+
+# Features containing no values
+isColNA <- apply(trainData, 2, function(x) sum(!is.na(x))==0)
+naColIndexes <- which(isColNA==TRUE)
+
+# Drop the same features from the training and test datasets.
+dropIndexes <- c(1, 3:7, naColIndexes)
+trainData <- trainData[, -dropIndexes]
+testData <- testData[, -dropIndexes]
+
+# Replace numeric column NAs with 0
+for( colNm in colnames(trainData) ) {
+    theCol <- trainData[colNm]
+    theCol[is.na(theCol)] <- 0
+    trainData[, colNm] <- theCol
+}
+for( colNm in colnames(testData) ) {
+    theCol <- testData[colNm]
+    theCol[is.na(theCol)] <- 0
+    testData[, colNm] <- theCol
+}
+```
+
+
+# Model and Feature Selection
+
+**I chose the random forest predictor** from the $randomForest$ package (which I accessed via the functions in the $caret$ package). I chose this model for the following reasons:
+
+* Random forest generally performs well in classification prediction, and we're able to relatively quickly train the model on data with a large number of predictor variables (features) without initially specifying many tuning parameters. This ability to quickly "get started" is especially valuable when we want to explore the relative importance of the predictor variables in iterative fashion and, as we learn about the data, narrow down the set of predictors to those that provide the most value. I wanted to experiment with the automated feature importance ranking, even though the aforementioned paper and study described which predictors were deemed most important.
+
+* While boosting can deliver superior classification performance when properly applied, we need to "know more about our data" to get the performance boost. We also risk overfitting the model to the training data set in this case, given the small sample size, obtained from a very small population of subjects performing the exercise.
+
+**I used cross-validation (cv) resampling** (with the 10 k-fold default) as opposed to bootstrap resampling in order to avoid elevating bias while taking on a healthy level of variance. This leads to a more conservative estimate of the out-of-sample error rate.
+
+```{r warning=FALSE, message=FALSE}
+
+set.seed(201317)
+# Cross-validation resampling; Did not use the default (bootstrap)
+# to avoid over-fitting to our small training set.
+trControl <- trainControl(method = "cv", classProbs=TRUE)
+
+# Random forest with automated feature selection.
+rfFit <- train(classe ~ ., data=trainData, method="rf", trControl=trControl)
+```
+
+The resulting model indicates a very small number of predictors sampled for splitting at each node ($mtry=2$), which is likely due to the strong correlation among the predictors. While this generally results in substantial variance, it helps with a conservative out-of-sample error estimate (~18%). There are always tradeoffs.
+
+```{r warning=FALSE, message=FALSE}
+rfFit$finalModel
+```
+
+The following version of the confusion matrix provides proportional average cell counts across resamples, as well as the average accuracy (82%).
+```{r warning=FALSE, message=FALSE}
+confusionMatrix(rfFit)
+```
+
+The most important features, as automatically selected, given the tuning parameters.
+```{r}
+varImpPlot(rfFit$finalModel, n.var=20, main="20 Most Important Features")
+```
+
+
+# Conclusions and Lessons Learned
+With the ready availability of powerful algorithms, such as those provided by the $caret$ and $randomForest$ packages, we still need to put substantial effort into providing and understanding the data. This exercise clarified for me why it is that obtaining the right data -- and selecting the right features of the data for our model -- are priority concerns. While I utilized automated feature ranking/selection for this project, it is clear that more thoughtful feature selection is needed to maximize the utility and effectiveness of predictive models.
